@@ -13,36 +13,45 @@ define([
         alert( 'WebSQL is not supported by your browser!' );
 
     return declare( null, {
+        // Name of the database to use
+        db_name: null,
 
-        name: null,
-
+        // Name of the table to access
         table_name: null,
 
+        // What fields to return when requesting a row (this may include some joint values)
+        // make sure the id of the row are the same as the id of the main table row
         select_fields: '*',
 
-        meta: [],
+        // a set of fields that we can manipulate on in the main table
+        meta: [ 'id' ],
 
+        // A set of joins, that may be used for getting data, all inserts are one on the main table alone
         joins: [],  // array of {table_name:,on:,type:} -- works only in select and insert
 
+        // info description of the database
         info: '',
 
+        // the initial size of the database
         max_size: 1024 * 1024 * 1,
 
+        // Version number used by some WebSQL implimentations (no phonegab)
         version: '1.0',
 
+        // The id og key value for the store main table
         idProperty: 'id',
+
+        // Enable SQL tracing the the console log
+        trace: false,
 
         constructor: function( args ) {
             lang.mixin( this, args );
 
-            if( typeof this.name != 'string' )
+            if( typeof this.db_name != 'string' )
                 throw Error( 'missing name of database' );
 
             if( typeof this.table_name != 'string' )
                 throw Error( 'missing the tablename of the table' );
-
-            if( typeof this.onDatabaseCreate != 'function' )
-                throw Error( 'missing the onDatabaseCreate function' );
 
             this._meta = {};
             for( m in this.meta )
@@ -50,14 +59,16 @@ define([
 
             var self = this;
 
-            this._conn = window.openDatabase( this.name, this.version, this.info, this.size );
+            this._conn = window.openDatabase( this.db_name, this.version, this.info, this.size );
 
-            this._conn.transaction( function( t ) {
-                self.onDatabaseCreate( t );
-            });
+            if( typeof this.onDatabaseCreate == 'function' ) {
+                this._conn.transaction( function( t ) {
+                    self.onDatabaseCreate( t );
+                });
+            }
         },
 
-        /*
+        /* Called when the database are ready, but only once at the creation of an instance
         onDatabaseCreate: function( db ) {
         },*/
 
@@ -74,6 +85,7 @@ define([
                         d.resolve( r );
                     },
                     function( t, e ) {
+                        console.log( "SQLerror: '", e.message, "' in ", stmt );
                         d.reject( e );
                     }
                 );
@@ -85,8 +97,9 @@ define([
         _make_join_stmt: function() {
             var stmt = '';
 
-            for( j in this.joins ) {
-                stmt += ' ' + j.type + ' JOIN ' + j.table_name + ' ON ' + j.on + ' ';
+            for( i in this.joins ) {
+                var j = this.joins[ i ];
+                stmt += (j.type ? ' ' + j.type: '') + ' JOIN ' + j.table_name + ' ON ' + j.on + ' ';
             }
 
             return stmt;
@@ -103,7 +116,8 @@ define([
             var stmt = 'SELECT ' + this.select_fields + ' FROM ' + this.table_name + this._make_join_stmt() +
                 ' WHERE ' + this.idProperty + ' = ?';
 
-            console.log( stmt );
+            if( this.trace )
+                console.log( stmt );
 
             this._exec( stmt, [id] ).then(
                 function( r ) {
@@ -120,8 +134,13 @@ define([
             Put data into the SQL database, using data found on the item. Please note the
             if the data on the item does not match the DB it is up to the DB to handle that
             as an SQL error.
+
+            If no id has been found in the item, it will try to add it instead
         */
         put: function( item ) {
+            if( !this.getIdentity( item ))
+                return this.add( item );
+
             var d = new Deferred();
 
             // Make SQL statement
@@ -141,7 +160,8 @@ define([
             stmt += ' SET ' + defs.join(',');
             stmt += ' WHERE ' + this.idProperty + ' = ?';
 
-            console.log( stmt );
+            if( this.trace )
+                console.log( stmt );
 
             this._exec( stmt, vals ).then(
                 function( r ) {
@@ -156,9 +176,6 @@ define([
         },
 
         add: function( item ) {
-            if( this.getIdentity( item ))
-                return this.put( item );
-
             var d = new Deferred();
 
             var defs = [],
@@ -177,7 +194,8 @@ define([
             stmt += ' (' + defs.join(',') + ')';
             stmt += ' VALUES(' + subs.join( ',' ) + ')';
 
-            console.log( stmt );
+            if( this.trace )
+                console.log( stmt );
 
             var self = this;
 
@@ -236,14 +254,15 @@ define([
 
                 if( options.sort ) {
                     if( options.sort.length > 0 ) {
-                        stmt += ' ORDER BY ';
+                        var elms = [];
 
                         for( i in options.sort) {
                             var s = options.sort[ i ];
 
                             if( typeof s.attribute == 'string' )
-                                stmt += s.attribute + (s.descending ? ' DESC' : ' ASC');
+                                elms.push( s.attribute + (s.descending ? ' DESC' : ' ASC'));
                         }
+                        stmt += ' ORDER BY ' + elms.join( ',' );
                     }
                 }
 
@@ -255,7 +274,8 @@ define([
 
                 stmt = 'SELECT ' + this.select_fields + stmt;
 
-                console.log( stmt );
+                if( this.trace )
+                    console.log( stmt );
 
                 this._exec( stmt, v ).then(
                     function( r ) {
