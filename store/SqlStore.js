@@ -6,8 +6,9 @@ define([
     'dojo/_base/declare',
     'dojo/_base/lang',
     'dojo/Deferred',
-    'dojo/store/util/QueryResults'
-], function( declare, lang, Deferred, QueryResults ) {
+    'dojo/store/util/QueryResults',
+    'dojo/store/util/SimpleQueryEngine'
+], function( declare, lang, Deferred, QueryResults, SimpleQueryEngine ) {
 
     if( ! window.openDatabase )
         alert( 'WebSQL is not supported by your browser!' );
@@ -59,7 +60,7 @@ define([
 
             var self = this;
 
-            this._conn = window.openDatabase( this.db_name, this.version, this.info, this.size );
+            this._conn = window.openDatabase( this.db_name, this.version, this.info, this.max_size );
 
             if( typeof this.onDatabaseCreate == 'function' ) {
                 this._conn.transaction( function( t ) {
@@ -230,6 +231,8 @@ define([
 
             return d;
         },
+
+        queryEngine: SimpleQueryEngine,
 
         query: function( query, options ) {
             options = options || {};
